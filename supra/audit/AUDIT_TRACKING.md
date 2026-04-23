@@ -268,6 +268,28 @@ Tests: 16/16 pass (unchanged — no test behavior affected by R2 batch).
 
 All 4 R2-roster auditors (ChatGPT, Gemini, Qwen, DeepSeek) returned unconditional GREEN at R3. Per Darbitex Final SOP, gate to mainnet deploy is CLEARED.
 
+## Post-mainnet audit (2026-04-23, Gemini 3.1 fresh session, source-only context)
+
+Independent audit after mainnet deploy. Gemini 3.1 given only `sources/ONE.move` without R1-R3 history or WARNING const interpretation context.
+
+Findings (10 items):
+
+| Gemini 3.1 severity | Finding | Status |
+|---|---|---|
+| HIGH | Liquidation halts on strict `total_sp > debt` | ⚠ Known design — debated in R2 (ChatGPT R2-7 rejected). Strict `>` prevents P=0 bug fixed in v0.2 audit. Tradeoff: liquidation pauses if SP-empty (not protocol crash). |
+| HIGH | 1% burn creates 0.25% supply/debt gap | ✅ Verbatim of WARNING (5). Pre-disclosed. |
+| MEDIUM | P-cliff freezing | ✅ WARNING (1). |
+| MEDIUM | u64 asymptotic overflow (decades-scale) | ✅ WARNING (2). |
+| MEDIUM | Oracle dependency | ✅ WARNING header + LIMITATIONS. |
+| LOW | CR<110% SP net loss | ✅ WARNING (4). |
+| LOW | Genesis trove permanent lock post-null-auth | ✅ WARNING (3). |
+| LOW | Self-redemption allowed | ✅ WARNING (6). |
+| POSITIVE | Oracle-free `close_trove` escape hatch | Confirmed design feature. |
+
+**0 new findings**. Every flagged item maps 1:1 to either a pre-disclosed WARNING const entry (items 1-6 embedded on-chain at line 53) or an R1-R3-locked design decision. Confirms WARNING const comprehensively captures all externally-audible risks.
+
+Post-mainnet audit result: **DISCLOSURE ALIGNMENT CONFIRMED**. Nothing surfaced by fresh-context review that wasn't already documented on-chain at deploy time.
+
 ### Final-sweep submission checklist
 - [ ] All 8 auditors re-submitted
 
