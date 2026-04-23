@@ -1,0 +1,13 @@
+[package]
+name = "ONE"
+version = "0.3.0"
+upgrade_policy = "compatible"
+# Note: deps (SupraFramework, dora-interface) are "compatible", so package cannot be "immutable".
+# Functional immutability achieved via null auth_key post-deploy (no signer = no upgrades).
+
+[addresses]
+ONE = "_"
+
+[dependencies]
+SupraFramework = { git = "https://github.com/Entropy-Foundation/aptos-core.git", subdir = "aptos-move/framework/supra-framework", rev = "dev" }
+core = { git = "https://github.com/Entropy-Foundation/dora-interface.git", subdir = "supra/mainnet/core", rev = "master" }

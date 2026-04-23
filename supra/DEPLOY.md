@@ -1,0 +1,270 @@
+# ONE — Deploy Recipe
+
+**Functional immutability via null auth_key — follow carefully, verify at every step.**
+
+Note: the ONE package itself has `upgrade_policy = "compatible"` (required because its dependencies — SupraFramework, dora-interface — are compatible; a dependent cannot be strictly stricter than its deps). Immutability is achieved at the **deployer-account** level, not at the package-policy level: after `rotate_authentication_key_call` to `0x0`, nobody can sign `publish_package_txn` for the deployer address, so no upgrade can ever be submitted. The contract stays technically upgradeable but permanently unreachable.
+
+## Deployer key security
+
+**Critical window**: between publish (Step 5) and null auth_key (Step 7), deployer's private key has residual power:
+- ⚠️ COULD publish upgrade via `publish_package_txn` (policy is "compatible", not "immutable")
+- ⚠️ CAN transfer deployer's SUPRA balance elsewhere
+- ⚠️ CAN run arbitrary txs from deployer account (call any protocol entry)
+
+Mitigations:
+1. **Use ephemeral machine for deploy** — fresh VM / container. Destroy post-deploy.
+2. **Hardware wallet** — keep private key on HW. `aptos` CLI supports Ledger.
+3. **Minimize window** — run Steps 5, 6, 7 in rapid succession. Ideally <5 min total.
+4. **Zero-balance deployer post-bootstrap** — ensure deployer holds only dust SUPRA (gas) before Step 7, so any window-compromise yields nothing material.
+
+Compromise window closes at Step 7 completion. After null auth_key, deployer is permanently unsignable.
+
+## Pre-deploy gate
+
+Must be GREEN before any publish:
+
+```
+✅ aptos move compile                                        → no errors
+✅ aptos move test                                           → 12/12 pass
+✅ Self-audit (docs/audit-v1.md)                             → all findings resolved
+✅ Move.toml upgrade_policy = "compatible"                   → verified (deps force this)
+✅ Oracle address 0xe3948c9e...4150 reachable on target net  → verify via view call
+✅ Pair ID 500 exists on target net                          → supra_oracle_storage::does_pair_exist(500)
+✅ Deployer account generated, funded                        → see below
+✅ Deployer plans to burn auth_key after bootstrap           → commitment documented
+```
+
+## Network configs
+
+### Testnet
+- RPC: `https://rpc-testnet.supra.com/rpc/v1`
+- Chain ID: TBD (verify at deploy time)
+- Oracle: same module name, but address may differ — **verify before deploy**
+- Faucet: Supra Discord or official faucet endpoint
+
+### Mainnet
+- RPC: `https://rpc-mainnet.supra.com/rpc/v1`
+- Chain ID: 8
+- Oracle: `0xe3948c9e3a24c51c4006ef2acc44606055117d021158f320062df099c4a94150::supra_oracle_storage`
+
+## Deploy sequence (7 steps)
+
+### Step 1 — Generate deployer account
+
+```bash
+aptos init --profile one-deploy-testnet \
+  --rest-url https://rpc-testnet.supra.com/rpc/v1 \
+  --network custom
+```
+
+Output: new keypair at `~/.aptos/config.yaml` under profile `one-deploy-testnet`. Record the address — this IS the final immutable `@ONE` address.
+
+### Step 2 — Fund deployer
+
+Deployer needs SUPRA for:
+- Gas for publish tx (~0.01 SUPRA typically)
+- Gas for bootstrap tx (~0.01 SUPRA)
+- Gas for auth-rotate tx (~0.005 SUPRA)
+- **Bootstrap collateral**: minimum **$2 worth SUPRA** (≈4,900 SUPRA at current $0.000408/SUPRA)
+  - Math: MIN_DEBT = 1 ONE × Open MCR 200% = $2 min collateral
+  - User's 5,000 SUPRA testnet balance IS sufficient (with ~100 SUPRA buffer for gas)
+
+For testnet: use faucet, request ≥50,000 SUPRA to be safe.
+
+For mainnet: fund via real SUPRA purchase → transfer to deployer address.
+
+### Step 3 — Convert Coin → FA (if needed)
+
+Wallet SUPRA is typically `Coin<SupraCoin>`. Protocol requires FA. Convert via one-shot script tx.
+
+Create `scripts/migrate_coin_to_fa.move`:
+```move
+script {
+    use supra_framework::coin;
+    use supra_framework::primary_fungible_store;
+    use supra_framework::supra_coin::SupraCoin;
+    use std::signer;
+    fun migrate_coin_to_fa(user: &signer, amount: u64) {
+        let c = coin::withdraw<SupraCoin>(user, amount);
+        let fa = coin::coin_to_fungible_asset(c);
+        primary_fungible_store::deposit(signer::address_of(user), fa);
+    }
+}
+```
+
+Run:
+```bash
+aptos move run-script --profile one-deploy-testnet \
+  --script-path scripts/migrate_coin_to_fa.move \
+  --args u64:25000_00000000
+```
+
+Verify FA balance:
+```bash
+aptos account list --profile one-deploy-testnet | grep "0xa\|fungible_store"
+```
+
+### Step 4 — Compile with real address
+
+```bash
+cd /home/rera/one/supra
+aptos move compile --named-addresses ONE=$(aptos config show-profiles --profile one-deploy-testnet | grep account | awk '{print $2}')
+```
+
+Expected output: `Result: ["<deployer_addr>::ONE"]`.
+
+### Step 5 — Publish package (IRREVERSIBLE from here)
+
+```bash
+aptos move publish --profile one-deploy-testnet \
+  --named-addresses ONE=<deployer_addr> \
+  --included-artifacts none
+```
+
+**Note**: `--included-artifacts none` strips build metadata to reduce bytecode size and avoid leaking source structure.
+
+Expected:
+- `"vm_status": "Executed successfully"`
+- Gas used: ~5000-10000 units
+- Package appears at `<deployer_addr>::ONE`
+
+Verify:
+```bash
+# Read warning from on-chain (confirms module deployed + callable)
+aptos move view --profile one-deploy-testnet \
+  --function-id '<deployer_addr>::ONE::read_warning'
+```
+
+Expected: vector<u8> containing "ONE is an immutable stablecoin..."
+
+### Step 6 — Bootstrap trove (Option A, locked)
+
+**Pre-check: verify oracle is fresh BEFORE running bootstrap.** If oracle timestamp >1 hour old, `open_trove` aborts with E_STALE and the Coin→FA portion of bootstrap.move has already executed (deployer has FA but no trove). Recover by retrying once oracle refreshes.
+
+```bash
+# Pre-check: oracle freshness
+aptos move view --profile one-deploy-testnet \
+  --function-id '<deployer_addr>::ONE::price'
+# If this succeeds, oracle is fresh. If aborts with E_STALE (code 4), wait for refresh.
+```
+
+Run `scripts/bootstrap.move`. **Run EXACTLY ONCE** — rerunning adds to genesis trove (not fatal, but inflates position). Opens genesis trove with ≈$10 SUPRA collateral, mints 1 ONE debt. Deployer receives 0.99 ONE after 1% fee.
+
+```bash
+# Fetch current oracle price first, compute required SUPRA
+PRICE=$(aptos move view --profile one-deploy-testnet \
+  --function-id '<deployer_addr>::ONE::price' | jq -r '.Result[0]')
+# supra_amt must satisfy: supra_amt * price / 1e8 >= 2 * 1e8 (= $2 coll for 1 ONE debt at 2x MCR)
+SUPRA_AMT=$(( 2 * 100000000 * 100000000 / PRICE + 1 ))  # +1 for safety margin
+
+aptos move run-script --profile one-deploy-testnet \
+  --compiled-script-path build/ONE/bytecode_scripts/bootstrap.mv \
+  --args u64:${SUPRA_AMT} u64:100000000
+```
+
+Verify:
+```bash
+aptos move view --profile one-deploy-testnet \
+  --function-id '<deployer_addr>::ONE::totals'
+# Expected: (100000000, 0, 1000000000000000000, 0, 0)
+#   total_debt=1 ONE, total_sp=0, product_factor=1e18 (PRECISION), r_one=0, r_supra=0
+```
+
+Deployer now holds 99_000_000 raw ONE (0.99 ONE) in primary store. Fee 1_000_000 (0.01 ONE) was routed — since SP empty, it was burned.
+
+### Step 7 — Null auth_key (POINT OF NO RETURN)
+
+**Confirm all previous steps verified on-chain BEFORE running this.**
+
+Method: call `0x1::account::rotate_authentication_key_call` directly via CLI. This sets auth_key to bytes you pass — no private-key derivation assumption.
+
+```bash
+aptos move run --profile one-deploy-testnet \
+  --function-id 0x1::account::rotate_authentication_key_call \
+  --args hex:0x0000000000000000000000000000000000000000000000000000000000000000 \
+  --assume-yes
+```
+
+After this tx succeeds:
+- Deployer's auth_key = all zeros
+- No private key can hash to all-zero auth_key (preimage resistance of SHA3)
+- Deployer account becomes permanently unsignable
+- Protocol continues operating via stored refs (MintRef / BurnRef / ExtendRef in Registry)
+
+**VERIFY**:
+```bash
+aptos account show --profile one-deploy-testnet | grep -i auth_key
+# expected: authentication_key: 0x0000000000000000000000000000000000000000000000000000000000000000
+```
+
+After this: deployer cannot sign any tx on this chain. Package `upgrade_policy` remains "compatible", but no signer exists → upgrade unreachable. Protocol runs autonomously via permissionless entries.
+
+## Post-deploy verification
+
+Run this on-chain check script:
+
+```bash
+DEPLOYER=<address>
+
+# 1. Registry exists at deployer
+aptos move view --function-id "${DEPLOYER}::ONE::metadata_addr"
+# expected: address of ONE FA metadata
+
+# 2. Warning readable
+aptos move view --function-id "${DEPLOYER}::ONE::read_warning"
+# expected: vector<u8> with warning text
+
+# 3. Totals sane
+aptos move view --function-id "${DEPLOYER}::ONE::totals"
+# expected: (100000000, 0, 1000000000000000000, 0, 0)
+#   1 ONE debt, 0 SP, product_factor=PRECISION (1e18), r_one=0, r_supra=0
+
+# 4. Price read works (oracle available)
+aptos move view --function-id "${DEPLOYER}::ONE::price"
+# expected: u128 value (SUPRA/USD at 8 dec scale, e.g., ~40600 for $0.000406)
+
+# 5. Package upgrade_policy is "compatible" (1). Immutability comes from null auth_key, not policy.
+aptos account list --query resources --account ${DEPLOYER} \
+  | grep -A 30 "0x1::code::PackageRegistry"
+# look for: "upgrade_policy": {"policy": 1}  (compatible)
+# and: account.authentication_key: 0x00...00  (null → no signer → no upgrade possible)
+
+# 6. Deployer auth_key is all-zeros
+aptos account show --account ${DEPLOYER} | grep authentication_key
+# expected: authentication_key: 0x0000...0000 (64 zero chars)
+```
+
+## Rollback / recovery
+
+**NONE.** Immutable design means:
+- Cannot patch bugs → redeploy at new address if broken, community adopts v2
+- Cannot unfreeze if oracle breaks → users wind down via `close_trove` (oracle-free)
+- Cannot recover lost funds → deployer's bootstrap SUPRA in trove is extractable only via public `redeem` by anyone (symbolic burn)
+
+## Known fail scenarios + expected behavior
+
+| Scenario | Expected | Recovery |
+|---|---|---|
+| Oracle stale >1hr | `E_STALE` on mint/redeem; `close_trove` still works | Wait for oracle refresh OR users close positions |
+| SUPRA drops 90% | Some troves insolvent; redemption against them may fail (`E_COLLATERAL`) | Honest failure; peg drifts in market |
+| User's ONE balance < full debt at close | `close_trove` aborts (insufficient ONE) | User must acquire missing ~1% via DEX |
+| Two simultaneous redeem against same trove (race) | First wins; second may fail with `E_TARGET` or `E_COLLATERAL` | Arb caller retries with different target |
+
+## Deployment log template
+
+After deploy, append to `docs/deployments.md`:
+
+```
+=== ONE v0.1.0 — <testnet/mainnet> ===
+Date: YYYY-MM-DD
+Deployer address: 0x...
+ONE module: 0x...::ONE
+ONE FA metadata: 0x... (from metadata_addr view)
+Oracle pair: 500 (SUPRA/USDT)
+Bootstrap: Option A — genesis trove 1 ONE debt, ~$10 SUPRA collateral
+Commit SHA: <git commit>
+Publish tx hash: 0x...
+Bootstrap tx hash: 0x...
+Auth-rotate tx hash: 0x...
+Final auth_key: 0x0000000000000000000000000000000000000000000000000000000000000000
+```
