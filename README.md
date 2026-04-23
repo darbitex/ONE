@@ -3,7 +3,7 @@
 Two chains, one name.
 
 - `supra/` — Supra L1, v0.3.0, **DEPRECATED (vulnerable, do not use)**. See below.
-- `aptos/` — Aptos, under audit. Not yet deployed to mainnet.
+- `aptos/` — Aptos mainnet, v0.1.3, **LIVE + SEALED** (immutable). See `aptos/DEPLOYMENT.md`.
 
 ---
 
@@ -36,9 +36,19 @@ Do not open a trove or deposit to SP on this package. A patched `v0.4.0` will be
 
 ---
 
-## `aptos/` — under audit
+## `aptos/` — LIVE on mainnet, sealed
 
-Aptos fork of the same design, hardened post-R2 with fixes for C-01 / M-01 / L-01 (see `aptos/audit/`). Not yet deployed to mainnet. See `aptos/audit/AUDIT_R2_SUBMISSION.md` and subsequent rounds.
+Aptos fork, fully audited through R1→R3.1 (Gemini + Claude both GREEN), deployed 2026-04-24, immutability sealed via `destroy_cap` at tx `0x529f06db...`.
+
+| | |
+|---|---|
+| Package | `0x85ee9c43688e37bb2050327467c3a6ebcfa37375a8209df327dd77c0aab87387` |
+| ONE FA metadata | `0xee5ebaf6ff851955cccaa946f9339bab7f7407d72c6673b029576747ba3fadc4` |
+| Collateral | APT (Aptos native) |
+| Oracle | Pyth APT/USD (cryptographically immutable, auth_key = 0x0) |
+| Sealed | `is_sealed() = true` |
+
+Full deploy record at `aptos/DEPLOYMENT.md`. Audit trail at `aptos/audit/`.
 
 ---
 
