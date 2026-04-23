@@ -290,6 +290,39 @@ Findings (10 items):
 
 Post-mainnet audit result: **DISCLOSURE ALIGNMENT CONFIRMED**. Nothing surfaced by fresh-context review that wasn't already documented on-chain at deploy time.
 
+## Post-mainnet audit #2 (2026-04-23, Grok, source-only context)
+
+Grok (xAI) previously unreachable at R1-R3; finally responded for post-mainnet review.
+
+Grok output style differs from Gemini 3.1: narrative tutorial/overview rather than structured severity-tagged findings. No HIGH/MEDIUM/LOW labels applied.
+
+**Strengths endorsed:**
+- u256 intermediates in reward/settle math
+- `MIN_P_THRESHOLD` cliff guard prevents SP wipeout
+- Strict oracle checks (value>0, freshness, future-drift)
+- Oracle-independent `close_trove` wind-down path
+- Explicit 25% fee burn routing
+- Comprehensive events
+- Test-only isolated-math helpers
+- No reentrancy surface (Move resource model)
+- No external calls beyond oracle
+
+**"Areas worth scrutiny"** (Grok phrasing — all map to prior fixes/disclosures):
+
+| Grok item | Prior coverage |
+|---|---|
+| Liquidation math at edge prices | Gemini R2-02 u128-cap-before-cast fix |
+| SP settle extreme sequences | R1 cliff guard + `test_liquidation_cliff_guard_aborts` |
+| Self-redemption semantics | WARNING (6) |
+| Total debt/SP accounting invariants | DeepSeek R2 verified, R2-1 false-alarm |
+| BPS precision/rounding | Qwen R2-F3 accepted+doc |
+| Genesis trove lock | WARNING (3) |
+| Immutability verification | Confirmed via DEPLOYER_KEY_PROOF.md |
+
+**Recommendations:** deploy testnet first (done), stress SP (cliff guard test exists), read WARNING (self-describing). **Improvements for forkers:** add health factor view, more visible oracle assumptions — nice-to-have, not blocking.
+
+**0 new findings, no severity labels.** Confirms WARNING coverage is comprehensive per two independent post-mainnet fresh-context audits (Gemini 3.1 + Grok).
+
 ### Final-sweep submission checklist
 - [ ] All 8 auditors re-submitted
 
