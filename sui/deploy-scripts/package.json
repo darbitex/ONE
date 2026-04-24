@@ -1,0 +1,18 @@
+{
+  "name": "one-sui-deploy-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ONE Sui deploy scripts — Tx 2 seal PTB (finalize_registration + destroy_cap)",
+  "scripts": {
+    "seal": "ts-node seal.ts",
+    "verify": "ts-node verify.ts"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

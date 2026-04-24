@@ -1,0 +1,14 @@
+{
+  "tx_digest": "7Riwmsd8AQFybPh77ttcqb4sPy36kjeo7qPbBjAKXyWT",
+  "package_id": "0x9f39a102363cec6218392c2e22208b3e05972ecc87af5daa62bac7015bf3b8dc",
+  "registry_id": "0xef9abb071f648903183863a099d0564ca6a745605298c9304841d8ae80b2877a",
+  "origin_cap_id": "0xccddaf3f538aa6387f1e6a9c8ad076eca1aeb469dc8931850efb6ea17b4c1b16",
+  "upgrade_cap_id": "0x4069f28dd1c34fa4122092ea40fed47c4009d3cfa1d9d7d4fde109afe8a377cf",
+  "currency_id": "0x6a7d9b32a2c967247f446f43f5a2bb7702a68e823a81fe118cf510ac69265a6e",
+  "currency_version": "854466719",
+  "currency_digest": "5gvJwL44Pso35qbYeDjh2XB3Ey9bcWSHvSHj81WRmGE2",
+  "active_addr": "0x6915bc38bccd03a6295e9737143e4ef3318bcdc75be80a3114f317633bdd3304",
+  "published_at_epoch_ms": "1107",
+  "seal_tx_digest": "Deh9wyxviEJrn7nLknWFdhkYiAKA5AyYMbvz2Xb3DTSL",
+  "sealed_at_ms": 1777059233251
+}

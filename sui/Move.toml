@@ -1,0 +1,17 @@
+[package]
+name = "ONE"
+version = "0.1.0"
+edition = "2024.beta"
+# Immutability is achieved post-publish by consuming the UpgradeCap via
+# sui::package::make_immutable inside destroy_cap. The package remains
+# upgradeable only in the window between publish and destroy_cap.
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "6d4ec0b0621dd9555753c9ecd5be021b25a0d267", override = true }
+Pyth = { local = "deps/pyth" }
+
+[addresses]
+ONE = "0x0"
+
+[dev-addresses]
+ONE = "0xCAFE"

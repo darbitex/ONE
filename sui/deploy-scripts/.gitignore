@@ -1,0 +1,4 @@
+node_modules/
+publish-raw.json
+*.log
+.env
