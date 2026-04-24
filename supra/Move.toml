@@ -1,9 +1,11 @@
 [package]
 name = "ONE"
-version = "0.3.0"
+version = "0.4.0"
 upgrade_policy = "compatible"
 # Note: deps (SupraFramework, dora-interface) are "compatible", so package cannot be "immutable".
 # Functional immutability achieved via null auth_key post-deploy (no signer = no upgrades).
+# v0.4.0 = fresh redeploy patching R2 bugs (C-01, M-01, L-01) disclosed against
+# v0.3.0 (0x4f03319c...) + ports R1-R3.1 + R4 improvements from Aptos sibling.
 
 [addresses]
 ONE = "_"

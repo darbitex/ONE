@@ -1,10 +1,15 @@
 /// ONE — immutable stablecoin on Supra L1
 ///
-/// WARNING: ONE is an immutable stablecoin contract that depends on
-/// Supra's native oracle feed. If Supra Foundation ever degrades or
-/// misrepresents its oracle, ONE's peg mechanism breaks deterministically
-/// - users can wind down via self-close without any external assistance,
-/// but new mint/redeem operations become unreliable or frozen.
+/// v0.4.0 — fresh redeploy at new address, supersedes v0.3.0 (0x4f03319c...) which
+/// is permanently vulnerable and null-auth'd. v0.4.0 patches the three R2-disclosed
+/// bugs (C-01 phantom reward, M-01 coll-zero grief, L-01 WARNING text) and ports
+/// R1-R3.1 + R4 post-mainnet improvements from the Aptos sibling fork.
+///
+/// WARNING: ONE is an immutable stablecoin contract on Supra L1 that depends on
+/// Supra's native oracle feed for SUPRA/USDT (pair id 500). If Supra Foundation
+/// ever degrades or misrepresents its oracle, ONE's peg mechanism breaks
+/// deterministically - users can wind down via self-close without any external
+/// assistance, but new mint/redeem operations become unreliable or frozen.
 /// one is immutable = bug is real. Audit this code yourself before
 /// interacting. made by solo dev and claude ai
 module ONE::ONE {
@@ -50,7 +55,7 @@ module ONE::ONE {
     const E_DECIMAL_OVERFLOW: u64 = 13;
     const E_P_CLIFF: u64 = 14;
 
-    const WARNING: vector<u8> = b"ONE is an immutable stablecoin contract that depends on Supra's native oracle feed. If Supra Foundation ever degrades or misrepresents its oracle, ONE's peg mechanism breaks deterministically - users can wind down via self-close without any external assistance, but new mint/redeem operations become unreliable or frozen. one is immutable = bug is real. Audit this code yourself before interacting. KNOWN LIMITATIONS: (1) Stability Pool enters frozen state when product_factor would drop below 1e9 - protocol aborts further liquidations rather than corrupt SP accounting, accepting bad-debt accumulation past the threshold. (2) Sustained large-scale activity over decades may asymptotically exceed u64 bounds on pending SP rewards. (3) Genesis trove is permanently locked after null-auth - owner cannot self-close. (4) Liquidations of troves with CR below 110 percent absorb as net loss to the SP - the liquidator and the 25 percent reserve share retain their nominal SUPRA amounts, and the SP alone covers the collateral shortfall, deviating from the nominal 25/25/50 split. (5) 25 percent of each fee is burned, creating a structural 0.25 percent aggregate supply-vs-debt gap per cycle (which rises to 1 percent during SP-empty windows because the remaining 75 percent also burns); individual debtors also face a 1 percent per-trove shortfall because only 99 percent is minted while 100 percent is needed to close - full protocol wind-down requires secondary-market ONE for the last debt closure. (6) Self-redemption (redeem against own trove) is allowed and behaves as partial debt repayment plus collateral withdrawal with a 1 percent fee. made by solo dev and claude ai";
+    const WARNING: vector<u8> = b"ONE is an immutable stablecoin contract on Supra L1 that depends on Supra's native oracle feed for SUPRA/USDT (pair id 500). If Supra Foundation ever degrades or misrepresents its oracle, ONE's peg mechanism breaks deterministically - users can wind down via self-close without any external assistance, but new mint/redeem operations become unreliable or frozen. one is immutable = bug is real. Audit this code yourself before interacting. KNOWN LIMITATIONS: (1) Stability Pool enters frozen state when product_factor would drop below 1e9 - protocol aborts further liquidations rather than corrupt SP accounting, accepting bad-debt accumulation past the threshold. sp_deposit resets product_factor to PRECISION when total_sp reaches zero, restoring liquidation capacity. (2) Sustained large-scale activity over decades may asymptotically exceed u64 bounds on pending SP rewards. When this occurs, sp_settle saturates pending rewards at u64 max (approximately 1.84e19 raw units) and emits a RewardSaturated event rather than aborting - the user loses only the astronomical excess above that cap. (3) Genesis trove is permanently locked after deployer auth_key is rotated to zero - the original deployer cannot self-close. Any later external trove opened by a live signer remains fully closeable. (4) Liquidation seized collateral is distributed in priority: liquidator bonus first (nominal 2.5 percent of debt value, being 25 percent of the 10 percent liquidation bonus), then 2.5 percent reserve share (also 25 percent of bonus), then SP absorbs the remainder and the debt burn. At CR roughly 110 percent to 150 percent the SP alone covers the collateral shortfall. At CR below approximately 2.5 percent the liquidator may take the entire remaining collateral, reserve and SP receive zero, and SP still absorbs the full debt burn. (5) 25 percent of each fee is burned, creating a structural 0.25 percent aggregate supply-vs-debt gap per cycle (which rises to 1 percent during SP-empty windows because the remaining 75 percent also burns); individual debtors also face a 1 percent per-trove shortfall because only 99 percent is minted while 100 percent is needed to close - full protocol wind-down requires secondary-market ONE for the last debt closure. (6) Self-redemption (redeem against own trove) is allowed and behaves as partial debt repayment plus collateral withdrawal with a 1 percent fee. Troves at the minimum debt of 1 ONE require an exact one_amt of 101010101 raw (= 1 divided by 0.99) to fully clear; amounts in the range 100000000 through 101010100 raw abort because residual debt falls between 0 and MIN_DEBT. Front-ends should compute the precise clear amount. (7) Extreme low-price regimes may cause transient aborts in redeem paths when requested amounts exceed u64 output bounds; use smaller amounts and retry. (8) PERMANENT ORACLE FREEZE: if Supra upgrades the supra_oracle_storage package in a breaking way, the SUPRA/USDT pair id 500 is de-registered, or the feed ever becomes permanently unavailable for any reason, the oracle-dependent entries (open_trove, redeem, liquidate, redeem_from_reserve) abort permanently. Oracle-free escape hatches remain fully open: close_trove lets any trove owner reclaim their collateral by burning the full trove debt in ONE (acquiring the 1 percent close deficit via secondary market if needed); add_collateral lets owners top up existing troves without touching the oracle; sp_deposit, sp_withdraw, and sp_claim let SP depositors manage and exit their positions and claim any rewards accumulated before the freeze. Protocol-owned SUPRA held in reserve_supra becomes permanently locked because redeem_from_reserve requires the oracle. No admin override exists; the freeze is final. (9) REDEMPTION vs LIQUIDATION are two separate mechanisms. liquidate is health-gated (requires CR below 150 percent) and applies a penalty bonus to the liquidator, the reserve, and the SP; healthy troves cannot be liquidated by anyone. redeem has no health gate on target and executes a value-neutral swap at oracle-recorded spot price - the target's debt decreases by net ONE while their collateral decreases by net times 1e8 over price SUPRA, so the target retains full value at oracle-recorded spot. Redemption is the protocol peg-anchor: when ONE trades below 1 USD on secondary market, any holder can burn ONE supply by redeeming for SUPRA, pushing the peg back up. The target is caller-specified; there is no sorted-by-CR priority, unlike Liquity V1's sorted list - the economic result for the target is identical to Liquity (made whole at oracle spot), only the redemption ordering differs, and ordering is a peg-efficiency optimization rather than a safety property. Borrowers who want guaranteed long-term SUPRA exposure without the possibility of redemption-induced position conversion should not use ONE troves - use a non-CDP lending protocol instead. Losing optionality under redemption is not the same as losing value: the target is economically indifferent at oracle spot. (10) ORACLE-LAG REDEMPTION DISCLOSURE: Supra's oracle is push-based with a staleness window of 900 seconds. Users cannot force-refresh the feed themselves. During the staleness window, oracle-recorded spot may lag true market spot by the amount market has moved since the last push. A redeemer who observes off-chain market price above oracle-cached price can extract the difference against the target trove minus the 1 percent fee; above a 1 percent divergence the extraction is net positive to the redeemer and net negative to the target. This is inherent to any pull-evaluated oracle with a staleness tolerance and is not preventable in immutable code. Trove owners expecting volatile markets should monitor Supra push cadence and add collateral or self-redeem preemptively. made by solo dev and claude ai";
 
     struct Trove has store, drop { collateral: u64, debt: u64 }
     struct SP has store, drop {
@@ -95,6 +100,9 @@ module ONE::ONE {
     #[event] struct SPClaimed has drop, store { user: address, one_amt: u64, supra_amt: u64 }
     #[event] struct ReserveRedeemed has drop, store { user: address, one_amt: u64, supra_out: u64 }
     #[event] struct FeeBurned has drop, store { amount: u64 }
+    /// Emitted by sp_settle when pending rewards hit u64 saturation (WARNING 2 territory).
+    /// No fund loss — user's claim is capped at u64::MAX raw units (≈1.84e19).
+    #[event] struct RewardSaturated has drop, store { user: address, pending_one_truncated: bool, pending_supra_truncated: bool }
 
     fun init_module(deployer: &signer) {
         init_module_inner(deployer, object::address_to_object<Metadata>(SUPRA_FA));
@@ -191,14 +199,34 @@ module ONE::ONE {
         let snap_i_supra = pos.snapshot_index_supra;
         let initial = pos.initial_balance;
 
-        if (snap_p == 0 || initial == 0) return;
+        // C-01 fix (v0.4.0): early-return branch MUST refresh snapshots before exit.
+        // v0.3.0 bug: returning without refresh left stale snap_p/snap_i_* paired with
+        // later fresh initial_balance via sp_deposit, inflating pending_one via
+        // (current_index - stale_snap_index) * new_initial / stale_snap_p.
+        if (snap_p == 0 || initial == 0) {
+            pos.snapshot_product = r.product_factor;
+            pos.snapshot_index_one = r.reward_index_one;
+            pos.snapshot_index_supra = r.reward_index_supra;
+            return;
+        };
 
-        // Compute pending (u256 to prevent overflow at high index × balance)
-        let pending_one = ((((r.reward_index_one - snap_i_one) as u256) * (initial as u256)) / (snap_p as u256)) as u64;
-        let pending_supra = ((((r.reward_index_supra - snap_i_supra) as u256) * (initial as u256)) / (snap_p as u256)) as u64;
+        // Compute pending (u256 to prevent overflow at high index × balance).
+        let u64_max: u256 = 18446744073709551615;
+        let raw_one = ((r.reward_index_one - snap_i_one) as u256) * (initial as u256) / (snap_p as u256);
+        let raw_supra = ((r.reward_index_supra - snap_i_supra) as u256) * (initial as u256) / (snap_p as u256);
+        let raw_bal = (initial as u256) * (r.product_factor as u256) / (snap_p as u256);
+        // Saturate at u64::MAX rather than abort — prevents permanent SP position lock
+        // if decades of fee accrual push pending rewards past u64 bounds. User loses only
+        // the astronomical excess above 1.8e19 raw units. WARNING (2) documents this.
+        let one_trunc = raw_one > u64_max;
+        let supra_trunc = raw_supra > u64_max;
+        let pending_one = (if (one_trunc) u64_max else raw_one) as u64;
+        let pending_supra = (if (supra_trunc) u64_max else raw_supra) as u64;
+        let new_balance = (if (raw_bal > u64_max) u64_max else raw_bal) as u64;
+        if (one_trunc || supra_trunc) {
+            event::emit(RewardSaturated { user: u, pending_one_truncated: one_trunc, pending_supra_truncated: supra_trunc });
+        };
 
-        // Update effective balance: balance decays with product ratio
-        let new_balance = ((((initial as u256) * (r.product_factor as u256)) / (snap_p as u256)) as u64);
         pos.initial_balance = new_balance;
         pos.snapshot_product = r.product_factor;
         pos.snapshot_index_one = r.reward_index_one;
@@ -270,7 +298,13 @@ module ONE::ONE {
         let r = borrow_global_mut<Registry>(@ONE);
         assert!(smart_table::contains(&r.troves, u), E_TROVE);
         let t = smart_table::remove(&mut r.troves, u);
-        fungible_asset::burn(&r.burn_ref, primary_fungible_store::withdraw(user, r.metadata, t.debt));
+        // Zero-debt guard (v0.4.0, ported from Aptos R1 Gemini #2): skip burn for
+        // troves whose debt has been zeroed via self-redeem or external redemption.
+        // Without this, primary_fungible_store::withdraw(user, r.metadata, 0) aborts
+        // on some framework versions, locking the owner out of their collateral.
+        if (t.debt > 0) {
+            fungible_asset::burn(&r.burn_ref, primary_fungible_store::withdraw(user, r.metadata, t.debt));
+        };
         r.total_debt = r.total_debt - t.debt;
         event::emit(TroveClosed { user: u, collateral: t.collateral, debt: t.debt });
         let sr = object::generate_signer_for_extending(&r.treasury_extend);
@@ -292,6 +326,11 @@ module ONE::ONE {
         t.debt = t.debt - net;
         t.collateral = t.collateral - supra_out;
         assert!(t.debt == 0 || t.debt >= MIN_DEBT, E_DEBT_MIN);
+        // M-01 fix (v0.4.0): forbid (coll=0, debt>0) residual state.
+        // v0.3.0 bug: external redeemer could pick one_amt that zeroes collateral
+        // exactly while leaving non-zero debt. Resulting trove is permanently stuck
+        // (close_impl aborts on zero-withdraw; liquidate aborts on coll_usd=0 healthy).
+        assert!(t.debt == 0 || t.collateral > 0, E_COLLATERAL);
 
         let user_fa = primary_fungible_store::withdraw(user, r.metadata, one_amt);
         let fee_fa = fungible_asset::extract(&mut user_fa, fee);
@@ -445,6 +484,16 @@ module ONE::ONE {
         let r = borrow_global_mut<Registry>(@ONE);
         let fa_in = primary_fungible_store::withdraw(user, r.metadata, amt);
         fungible_asset::deposit(r.sp_pool, fa_in);
+        // Reset-on-empty (v0.4.0, ported from Aptos Liquity V2 pattern): when the SP has
+        // been fully drained (previous cliff-freeze plus all depositors withdrew), reset
+        // product_factor to PRECISION so subsequent liquidations can resume without
+        // hitting the MIN_P_THRESHOLD cliff immediately. total_sp==0 implies
+        // sp_positions is empty (sp_withdraw removes rows at initial_balance==0 and
+        // liquidate's strict total_sp>debt prevents reaching 0 via liquidation), so no
+        // active depositor is harmed by the reset.
+        if (r.total_sp == 0) {
+            r.product_factor = PRECISION;
+        };
         if (smart_table::contains(&r.sp_positions, u)) {
             sp_settle(r, u);
             let p = smart_table::borrow_mut(&mut r.sp_positions, u);
@@ -527,6 +576,30 @@ module ONE::ONE {
         fungible_asset::balance(borrow_global<Registry>(@ONE).reserve_supra)
     }
 
+    /// Exact ONE amount user needs to burn in order to call close_trove on their own trove.
+    /// Useful for front-ends to show the secondary-market ONE deficit pre-close.
+    /// Returns 0 for addresses with no trove OR for zero-debt residual troves (post-full-redeem).
+    #[view] public fun close_cost(addr: address): u64 acquires Registry {
+        let r = borrow_global<Registry>(@ONE);
+        if (smart_table::contains(&r.troves, addr)) {
+            smart_table::borrow(&r.troves, addr).debt
+        } else 0
+    }
+
+    /// Returns (collateral, debt, cr_bps). cr_bps = 0 if no trove, or if trove has zero
+    /// debt (post-full-redeem). Uses price_8dec() so aborts on oracle staleness when
+    /// trove has non-zero debt — caller must handle that case.
+    #[view] public fun trove_health(addr: address): (u64, u64, u64) acquires Registry {
+        let r = borrow_global<Registry>(@ONE);
+        if (!smart_table::contains(&r.troves, addr)) return (0, 0, 0);
+        let t = smart_table::borrow(&r.troves, addr);
+        if (t.debt == 0) return (t.collateral, 0, 0);
+        let price = price_8dec();
+        let coll_usd = (t.collateral as u128) * price / 100_000_000;
+        let cr_bps = (coll_usd * 10000 / (t.debt as u128)) as u64;
+        (t.collateral, t.debt, cr_bps)
+    }
+
     // =========================================================
     //             TEST-ONLY HELPERS (stripped from prod)
     // =========================================================
@@ -546,6 +619,59 @@ module ONE::ONE {
             snapshot_index_supra: r.reward_index_supra,
         });
         r.total_sp = r.total_sp + balance;
+    }
+
+    #[test_only]
+    public fun test_set_sp_position(
+        addr: address, initial: u64, snap_p: u128, snap_i_one: u128, snap_i_supra: u128
+    ) acquires Registry {
+        let r = borrow_global_mut<Registry>(@ONE);
+        if (smart_table::contains(&r.sp_positions, addr)) {
+            let p = smart_table::borrow_mut(&mut r.sp_positions, addr);
+            p.initial_balance = initial;
+            p.snapshot_product = snap_p;
+            p.snapshot_index_one = snap_i_one;
+            p.snapshot_index_supra = snap_i_supra;
+        } else {
+            smart_table::add(&mut r.sp_positions, addr, SP {
+                initial_balance: initial,
+                snapshot_product: snap_p,
+                snapshot_index_one: snap_i_one,
+                snapshot_index_supra: snap_i_supra,
+            });
+        };
+    }
+
+    #[test_only]
+    public fun test_get_sp_snapshots(addr: address): (u64, u128, u128, u128) acquires Registry {
+        let r = borrow_global<Registry>(@ONE);
+        let p = smart_table::borrow(&r.sp_positions, addr);
+        (p.initial_balance, p.snapshot_product, p.snapshot_index_one, p.snapshot_index_supra)
+    }
+
+    #[test_only]
+    public fun test_force_reward_indices(one_idx: u128, supra_idx: u128) acquires Registry {
+        let r = borrow_global_mut<Registry>(@ONE);
+        r.reward_index_one = one_idx;
+        r.reward_index_supra = supra_idx;
+    }
+
+    #[test_only]
+    public fun test_call_sp_settle(addr: address) acquires Registry {
+        let r = borrow_global_mut<Registry>(@ONE);
+        sp_settle(r, addr);
+    }
+
+    #[test_only]
+    public fun test_force_reset_product_factor_precision() acquires Registry {
+        let r = borrow_global_mut<Registry>(@ONE);
+        r.product_factor = PRECISION;
+    }
+
+    #[test_only]
+    public fun test_set_product_factor(pf: u128) acquires Registry {
+        let r = borrow_global_mut<Registry>(@ONE);
+        r.product_factor = pf;
     }
 
     /// Mirrors route_fee_fa's SP share (75% of raw fee amount) for isolated math testing.
