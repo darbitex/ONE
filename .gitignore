@@ -22,3 +22,7 @@ supra/audit/groq_qwen3_32b_R1.md
 supra/audit/cerebras_run.log
 supra/audit/gemini_run.log
 supra/audit/groq_run.log
+
+# v0.4.0 Supra deployer keypair (private key MUST NOT be committed)
+supra/.v04-keys/deployer.key
+supra/.v04-keys/
