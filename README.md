@@ -1,7 +1,18 @@
 # ONE — immutable stablecoin
 
-Two chains, one name.
+> ## ⚠️ Sui chain DEPRECATED — successor: [`darbitex/D`](https://github.com/darbitex/D)
+>
+> ONE Sui v0.1.0 (`0x9f39a102…`) remains live + sealed and supports wind-down (close_trove, sp_withdraw, redeem_from_reserve). **No new mints recommended.** All new Sui activity should use **D v0.2.0** at [`darbitex/D`](https://github.com/darbitex/D), which fixes V1's reward-dilution-on-donation issue and improves depositor yield (25/75 → 10/90 fee split, agnostic donation primitive).
+>
+> Aptos and Supra ONE remain canonical and continue to be the recommended deployments on those chains.
+>
+> See [`darbitex/D` README](https://github.com/darbitex/D/blob/main/README.md) and [`REDEPLOY_FROM_ONE.md`](https://github.com/darbitex/D/blob/main/REDEPLOY_FROM_ONE.md) for migration rationale.
 
+---
+
+Multi-chain immutable stablecoin.
+
+- `sui/` — Sui mainnet, **v0.1.0 SEALED + DEPRECATED** at `0x9f39a102…` (successor: [`darbitex/D`](https://github.com/darbitex/D))
 - `supra/` — Supra L1, **v0.4.0 LIVE + SEALED** at `0x2365c948…eafda5c90f`. (v0.3.0 at `0x4f03319c…` is DEPRECATED, see below.)
 - `aptos/` — Aptos mainnet, v0.1.3 LIVE + SEALED at `0x85ee9c43…aab87387`. See `aptos/DEPLOYMENT.md`.
 
